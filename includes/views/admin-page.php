@@ -246,7 +246,7 @@ $show_cron_monthday = 'monthly' === $schedule_mode;
 				<tr>
 					<th scope="row">月度保留</th>
 					<td>
-						<label style="display:block;margin-bottom:6px;"><input type="checkbox" name="monthly_retain_enabled" value="1" <?php checked( ! empty( $settings['monthly_retain_enabled'] ) ); ?> /> 启用每月最后一个成功包的 OSS 锚点保留（不计入滚动数，受地板保护）</label>
+						<label style="display:block;margin-bottom:6px;"><input type="checkbox" name="monthly_retain_enabled" value="1" <?php checked( ! empty( $settings['monthly_retain_enabled'] ) ); ?> /> 启用月度锚点：按备份文件名 YYYYMMDD 定月，每月保留该月最后一个包（不计入滚动数，受地板保护）</label>
 						<input type="number" min="1" max="120" name="monthly_keep_months" value="<?php echo esc_attr( (string) $settings['monthly_keep_months'] ); ?>" class="small-text" />
 						<span>个月</span>
 					</td>

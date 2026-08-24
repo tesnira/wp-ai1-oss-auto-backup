@@ -375,53 +375,160 @@ class Ai1_Oss_Auto_Backup_Logger {
 	}
 
 	/**
-	 * P1：将本月最新成功记录标为月度锚点，同月旧锚点降级。
+	 * 从备份文件名解析 YYYYMMDD（如 `site-20260823-020154-xxx.wpress`）。
+	 *
+	 * @param string $filename 本地文件名。
+	 * @return string 八位日期，解析失败为空。
+	 */
+	public static function parse_backup_ymd_from_filename( $filename ) {
+		$filename = (string) $filename;
+		if ( '' === $filename ) {
+			return '';
+		}
+
+		if ( ! preg_match_all( '/(?<!\d)(\d{8})(?!\d)/', $filename, $matches ) ) {
+			return '';
+		}
+
+		foreach ( $matches[1] as $ymd ) {
+			$year  = (int) substr( $ymd, 0, 4 );
+			$month = (int) substr( $ymd, 4, 2 );
+			$day   = (int) substr( $ymd, 6, 2 );
+			if ( $year >= 2000 && $year <= 2100 && checkdate( $month, $day, $year ) ) {
+				return $ymd;
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * 备份内容月份 YYYY-MM：优先文件名日期，否则回退上传完成时间。
+	 *
+	 * @param object $row 日志行。
+	 * @return string
+	 */
+	public static function get_backup_month_key_from_row( $row ) {
+		$ymd = self::parse_backup_ymd_from_filename( isset( $row->local_filename ) ? (string) $row->local_filename : '' );
+		if ( '' !== $ymd ) {
+			return substr( $ymd, 0, 4 ) . '-' . substr( $ymd, 4, 2 );
+		}
+
+		$finished = ! empty( $row->finished_at ) ? $row->finished_at : ( isset( $row->created_at ) ? $row->created_at : '' );
+		$month    = substr( (string) $finished, 0, 7 );
+
+		return preg_match( '/^\d{4}-\d{2}$/', $month ) ? $month : '';
+	}
+
+	/**
+	 * 同月内比较用的日期键：优先文件名 YYYYMMDD。
+	 *
+	 * @param object $row 日志行。
+	 * @return string
+	 */
+	public static function get_backup_ymd_sort_key( $row ) {
+		$ymd = self::parse_backup_ymd_from_filename( isset( $row->local_filename ) ? (string) $row->local_filename : '' );
+		if ( '' !== $ymd ) {
+			return $ymd;
+		}
+
+		$finished = ! empty( $row->finished_at ) ? $row->finished_at : ( isset( $row->created_at ) ? $row->created_at : '' );
+		$digits   = preg_replace( '/\D/', '', (string) $finished );
+
+		return substr( (string) $digits, 0, 8 );
+	}
+
+	/**
+	 * 按备份文件名月份，将每月最后一个成功包标为月度锚点。
+	 *
+	 * @return void
+	 */
+	public static function rebuild_monthly_anchors() {
+		global $wpdb;
+
+		$settings = Ai1_Oss_Auto_Backup_Settings::get_settings();
+		if ( empty( $settings['monthly_retain_enabled'] ) ) {
+			self::clear_all_monthly_anchors();
+			return;
+		}
+
+		$rows = self::get_success_candidates();
+		if ( empty( $rows ) ) {
+			self::clear_all_monthly_anchors();
+			return;
+		}
+
+		$by_month = array();
+		foreach ( $rows as $row ) {
+			$month_key = self::get_backup_month_key_from_row( $row );
+			if ( '' === $month_key ) {
+				continue;
+			}
+			$by_month[ $month_key ][] = $row;
+		}
+
+		$anchor_ids = array();
+		foreach ( $by_month as $group ) {
+			usort(
+				$group,
+				static function ( $a, $b ) {
+					$ya = Ai1_Oss_Auto_Backup_Logger::get_backup_ymd_sort_key( $a );
+					$yb = Ai1_Oss_Auto_Backup_Logger::get_backup_ymd_sort_key( $b );
+					if ( $ya !== $yb ) {
+						return strcmp( $yb, $ya );
+					}
+					$ta = (string) ( $a->finished_at ?: $a->created_at );
+					$tb = (string) ( $b->finished_at ?: $b->created_at );
+					if ( $ta !== $tb ) {
+						return strcmp( $tb, $ta );
+					}
+					return (int) $b->id - (int) $a->id;
+				}
+			);
+			$anchor_ids[] = (int) $group[0]->id;
+		}
+
+		self::clear_all_monthly_anchors();
+
+		$table = self::get_table_name();
+		foreach ( $anchor_ids as $id ) {
+			if ( $id <= 0 ) {
+				continue;
+			}
+			$wpdb->update(
+				$table,
+				array( 'is_monthly_anchor' => 1 ),
+				array( 'id' => $id ),
+				array( '%d' ),
+				array( '%d' )
+			);
+		}
+	}
+
+	/**
+	 * 清除全部月度锚点。
+	 *
+	 * @return void
+	 */
+	public static function clear_all_monthly_anchors() {
+		global $wpdb;
+
+		$wpdb->query( 'UPDATE ' . self::get_table_name() . ' SET is_monthly_anchor = 0 WHERE is_monthly_anchor = 1' );
+	}
+
+	/**
+	 * 上传成功后重算月度锚点（按文件名 YYYYMMDD 定月）。
 	 *
 	 * @param int $log_id 新成功日志 ID。
 	 * @return void
 	 */
 	public static function promote_monthly_anchor( $log_id ) {
-		global $wpdb;
-
 		$row = self::get_by_id( $log_id );
 		if ( ! $row || 'success' !== $row->status ) {
 			return;
 		}
 
-		$settings = Ai1_Oss_Auto_Backup_Settings::get_settings();
-		if ( empty( $settings['monthly_retain_enabled'] ) ) {
-			return;
-		}
-
-		$finished = ! empty( $row->finished_at ) ? $row->finished_at : $row->created_at;
-		$month_key = substr( (string) $finished, 0, 7 ); // YYYY-MM
-		if ( ! preg_match( '/^\d{4}-\d{2}$/', $month_key ) ) {
-			return;
-		}
-
-		$table = self::get_table_name();
-
-		$wpdb->query(
-			$wpdb->prepare(
-				"UPDATE {$table}
-				SET is_monthly_anchor = 0
-				WHERE status = %s
-					AND is_monthly_anchor = 1
-					AND LEFT(COALESCE(finished_at, created_at), 7) = %s
-					AND id <> %d",
-				'success',
-				$month_key,
-				(int) $log_id
-			)
-		);
-
-		$wpdb->update(
-			$table,
-			array( 'is_monthly_anchor' => 1 ),
-			array( 'id' => (int) $log_id ),
-			array( '%d' ),
-			array( '%d' )
-		);
+		self::rebuild_monthly_anchors();
 	}
 
 	/**
@@ -637,8 +744,8 @@ class Ai1_Oss_Auto_Backup_Logger {
 		foreach ( $candidates as $row ) {
 			$id = (int) $row->id;
 			if ( ! empty( $settings['monthly_retain_enabled'] ) && ! empty( $row->is_monthly_anchor ) ) {
-				$month_key = substr( (string) ( $row->finished_at ?: $row->created_at ), 0, 7 );
-				if ( $month_key >= $cutoff_key ) {
+				$month_key = self::get_backup_month_key_from_row( $row );
+				if ( '' !== $month_key && $month_key >= $cutoff_key ) {
 					$anchors[ $id ] = $row;
 					$protected[ $id ] = $id;
 					continue;

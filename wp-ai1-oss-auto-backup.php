@@ -3,7 +3,7 @@
  * Plugin Name: WP AI1 OSS Auto Backup
  * Plugin URI: https://wordpress.org/plugins/wp-ai1-oss-auto-backup/
  * Description: 将 All-in-One WP Migration 生成的 .wpress 备份自动上传到独立的阿里云 OSS 私有桶，支持定时调度、保留策略、日志、拉取与远端校验。
- * Version: 1.0.0
+ * Version: 1.0.1
  * Requires at least: 5.8
  * Requires PHP: 7.4
  * Author: biancaplus
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'AI1_OSS_AUTO_BACKUP_VERSION' ) ) {
-	define( 'AI1_OSS_AUTO_BACKUP_VERSION', '1.0.0' );
+	define( 'AI1_OSS_AUTO_BACKUP_VERSION', '1.0.1' );
 }
 
 if ( ! defined( 'AI1_OSS_AUTO_BACKUP_FILE' ) ) {

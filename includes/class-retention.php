@@ -155,8 +155,8 @@ class Ai1_Oss_Auto_Backup_Retention {
 		$total_alive = count( $alive );
 
 		foreach ( $anchors as $row ) {
-			$month_key = substr( (string) ( $row->finished_at ?: $row->created_at ), 0, 7 );
-			if ( $month_key >= $cutoff_key ) {
+			$month_key = Ai1_Oss_Auto_Backup_Logger::get_backup_month_key_from_row( $row );
+			if ( '' === $month_key || $month_key >= $cutoff_key ) {
 				continue;
 			}
 			if ( ( $total_alive - 1 ) < $keep_count ) {

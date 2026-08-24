@@ -157,6 +157,12 @@ class Ai1_Oss_Auto_Backup_Settings {
 		update_option( self::OPTION_KEY, $sanitized, false );
 		Ai1_Oss_Auto_Backup_Cron::reschedule();
 
+		if ( ! empty( $sanitized['monthly_retain_enabled'] ) ) {
+			Ai1_Oss_Auto_Backup_Logger::rebuild_monthly_anchors();
+		} else {
+			Ai1_Oss_Auto_Backup_Logger::clear_all_monthly_anchors();
+		}
+
 		return self::get_display_settings();
 	}
 
